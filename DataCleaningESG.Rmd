@@ -1,0 +1,167 @@
+---
+title: "ESG analysis"
+author: "Hong Doan, Simon Hodson, Max Worth"
+date: '2022-11-07'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(tidyverse)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+``` {r import}
+# Reading in Excel Data
+  BBG_ES <- read_excel("Raw_Data/BBG_E&S.xlsx")
+  BBG_G <- read_excel("Raw_Data/BBG_G.xlsx")
+  Stock_14 <- read_excel("Raw_Data/ESG_14.xlsx")
+  Stock_15 <- read_excel("Raw_Data/ESG_15.xlsx")
+  Stock_16 <- read_excel("Raw_Data/ESG_16.xlsx")
+  Stock_17 <- read_excel("Raw_Data/ESG_17.xlsx")
+  Stock_18 <- read_excel("Raw_Data/ESG_18.xlsx")
+  Stock_19 <- read_excel("Raw_Data/ESG_19.xlsx")
+  Stock_20 <- read_excel("Raw_Data/ESG_20.xlsx")
+  Stock_21 <- read_excel("Raw_Data/ESG_21.xlsx")
+  Stock_22 <- read_excel("Raw_Data/ESG_22.xlsx")
+```
+
+## First we clean the data on Environmental and Social
+``` {r es.rename}
+# Renaming columns to only list out year
+  BBG_ES <- rename(.data = BBG_ES, `2021` = `44561`, `2020` = `44196`, `2019` = `43830`, `2018` = `43465`, `2017` = `43100`, `2016` = `42735`, `2015` = `42369`)
+# Renaming the index identifier variable
+  BBG_ES <- rename(.data = BBG_ES, Index = Value_Name)
+```
+
+``` {r es.drop}
+# Dropping Value_Type (unnecessary information)
+  BBG_ES <- select(.data = BBG_ES, !Value_Type)
+```
+
+``` {r es.reshape}
+# Reshapping data so that one observation is one company in one year
+  BBG_ES <- pivot_longer(data = BBG_ES, cols = c(`2015`, `2016`, `2017`, `2018`, `2019`, `2020`, `2021`), names_to = "Year")
+  BBG_ES <- pivot_wider(data = BBG_ES, names_from = Index, values_from = value)
+```
+
+## Next, we clean up company governance scores, which are in a separate dataset
+``` {r g.year}
+# Renaming columns to only list out year
+# Technically these are *reported* on the first day of the subsequent year
+# however, they are reporting on the previous year, so we will use that
+  BBG_G <- rename(.data = BBG_G, `2020` = `44197`, `2019` = `43831`, `2018` = `43466`, `2017` = `43101`, `2016` = `42736`, `2015` = `42370`, `2014` = `42005`)
+```
+
+``` {r g.reshape}
+# Reshapping data so that one observation is one score for one company in one year
+  BBG_G <- pivot_longer(data = BBG_G, cols = c(`2014`, `2015`, `2016`, `2017`, `2018`, `2019`, `2020`), names_to = "Year")
+```
+
+``` {r g.index}
+# We add an index variable to identify this as the governance indicator
+  BBG_G <- mutate(.data = BBG_G, Index = "Governance")
+```
+
+``` {r g.rename}
+# We rename some variables
+  BBG_G <- rename(.data = BBG_G, Industry = Bi074, Governance = value)
+# We reorder the variables
+  BBG_G <- BBG_G[, c(2, 5, 6, 1, 3, 4)]
+```
+
+## Next, we merge the ES and G to get ESG data
+``` {r esg.merge}
+# Isolating Governance metric
+  BBG_ESG <- merge(x = BBG_ES, y = BBG_G, by = c("Security_Name", "Year"))
+# Dropping redundant measures
+  BBG_ESG <- select(.data = BBG_ESG, !Ticker.y)
+# Renaming variables
+  BBG_ESG <- rename(.data = BBG_ESG, Ticker = Ticker.x)
+```
+
+## After that, we clean the containing company information
+``` {r Stock.Year}
+# Adding in Year to the data
+  Stock_14 <- mutate(.data = Stock_14, Year = 2014)
+  Stock_15 <- mutate(.data = Stock_15, Year = 2015)
+  Stock_16 <- mutate(.data = Stock_16, Year = 2016)
+  Stock_17 <- mutate(.data = Stock_17, Year = 2017)
+  Stock_18 <- mutate(.data = Stock_18, Year = 2018)
+  Stock_19 <- mutate(.data = Stock_19, Year = 2019)
+  Stock_20 <- mutate(.data = Stock_20, Year = 2020)
+  Stock_21 <- mutate(.data = Stock_21, Year = 2021)
+  Stock_22 <- mutate(.data = Stock_22, Year = 2022)
+```
+
+``` {r stock.append}
+# Appending into blank dataframe
+  Stock <- rbind(Stock_14, Stock_15)
+  Stock <-rbind(Stock, Stock_16)
+  Stock <-rbind(Stock, Stock_17)
+  Stock <- rbind(Stock, Stock_18)
+  Stock <- rbind(Stock, Stock_19)
+  Stock <- rbind(Stock, Stock_20)
+  Stock <- rbind(Stock, Stock_21)
+  Stock <- rbind(Stock, Stock_22)
+# removing obsolete individual year date
+  rm(list = c("Stock_14", "Stock_15", "Stock_16", "Stock_17", "Stock_18", "Stock_19", "Stock_20", "Stock_21", "Stock_22"))
+```
+
+``` {r stock.drop}
+# Dropping useless variables
+  Stock <- select(.data = Stock, !`MSCI Govnce Pillr Scr` & !`MSCI Soc Pillr Scr` & !`MSCI Env Pillr Scr` & !`BBG Default Risk` & !`Fund Ind Code`)
+# Dropping Observations missing a name (blank observations)
+  Stock <- Stock[!is.na(Stock$Name), ]
+```
+
+## Now we combine the Stock data adn the stock data to get one big data
+``` {r ESG.merge}
+# merging Stock and BBG_ESG
+  ESG <- merge(x = Stock, y = BBG_G, by = c("Ticker", "Year"))
+```
+
+``` {r ESG.sort}
+# We sort the esg data by Ticker by year
+  attach(ESG)
+  ESG <- ESG[order(Ticker, Year), ]
+```
+
+
+``` {r ESG.summary}
+# getting summary Statistics on various variables
+  summary(ESG)
+```
+
+``` {r reg1}
+# Regression 1: Regressing CAGR mkt Cap on all values
+# Running Regression
+  reg1 <- lm(log(`CAGR of  Market Cap over 1 Month` + 100) ~ 
+       `Governance` + #pinkie fix thes
+       `Sharpe:M-1` + 
+       `BEst Target Px:D-1` + 
+       `Tot Assets LF` +
+       `FCF T12M` +
+       factor(Name) + 
+       factor(Year), data = ESG)
+```
+``` {r reg1a}
+# Analysis of reg1
+  # Outputting Regression Table
+    summary(reg1)
+  
+  # Testing for Normally Distributed Errors
+    qqnorm(reg1$residuals)
+    qqline(reg1$residuals)
+  
+  # Residuals to fitted Value Plot
+    plot(x = reg1$fitted.values, y = reg1$residuals, xlab = 
+           "Fitted Values", ylab = "Residuals" )
+    abline(h = 0)
+  
+  # Growth in ESG and Growth in CAGR mkt CAP
+    plot(x = ESG$Governance, y = log(ESG$`CAGR of  Market Cap over 1 Month` + 100), xlab = "Bloomberg Governance Score", ylab = "log(CAGR of Market Cap over 1 month)")
+```
+```{r}
+write_csv(ESG, "CleanedESG.csv")
+```
